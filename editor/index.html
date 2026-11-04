@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js editor</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<link rel="apple-touch-icon" href="images/icon.png">
+		<link rel="manifest" href="manifest.json">
+		<link rel="shortcut icon" href="../files/favicon_white.ico" media="(prefers-color-scheme: dark)"/>
+		<link rel="shortcut icon" href="../files/favicon.ico" media="(prefers-color-scheme: light)" />
+		<style type="text/css">
+			.toolbar2{
+				position: absolute;
+				z-index: 10000;
+				background: #fff;
+				right: 1%;
+				top: 1%;
+			}
+		</style>
+	</head>
+	<body>
+		<link rel="stylesheet" href="css/main.css">
+
+		<script src="js/ffmpeg.min.js" defer></script>
+
+		<!-- <script src="../examples/js/libs/draco/draco_encoder.js"></script> -->
+
+		<link rel="stylesheet" href="js/libs/codemirror/codemirror.css">
+		<link rel="stylesheet" href="js/libs/codemirror/theme/monokai.css">
+		<script src="js/libs/codemirror/codemirror.js"></script>
+		<script src="js/libs/codemirror/mode/javascript.js"></script>
+		<script src="js/libs/codemirror/mode/glsl.js"></script>
+
+		<script src="js/libs/esprima.js"></script>
+		<script src="js/libs/jsonlint.js"></script>
+
+		<link rel="stylesheet" href="js/libs/codemirror/addon/dialog.css">
+		<link rel="stylesheet" href="js/libs/codemirror/addon/show-hint.css">
+		<link rel="stylesheet" href="js/libs/codemirror/addon/tern.css">
+
+		<script src="js/libs/codemirror/addon/dialog.js"></script>
+		<script src="js/libs/codemirror/addon/show-hint.js"></script>
+		<script src="js/libs/codemirror/addon/tern.js"></script>
+		<script src="js/libs/acorn/acorn.js"></script>
+		<script src="js/libs/acorn/acorn_loose.js"></script>
+		<script src="js/libs/acorn/walk.js"></script>
+		<script src="js/libs/ternjs/polyfill.js"></script>
+		<script src="js/libs/ternjs/signal.js"></script>
+		<script src="js/libs/ternjs/tern.js"></script>
+		<script src="js/libs/ternjs/def.js"></script>
+		<script src="js/libs/ternjs/comment.js"></script>
+		<script src="js/libs/ternjs/infer.js"></script>
+		<script src="js/libs/ternjs/doc_comment.js"></script>
+		<script src="js/libs/tern-threejs/threejs.js"></script>
+		<script src="js/libs/signals.min.js"></script>
+
+		<script type="module">
+
+			import * as THREE from '../build/three.module.js';
+
+			import { Editor } from './js/Editor.js';
+			import { Viewport } from './js/Viewport.js';
+			import { Toolbar } from './js/Toolbar.js';
+			import { Script } from './js/Script.js';
+			import { Player } from './js/Player.js';
+			import { Sidebar } from './js/Sidebar.js';
+			import { Menubar } from './js/Menubar.js';
+			import { Resizer } from './js/Resizer.js';
+			// import { VRButton } from '../examples/jsm/webxr/VRButton.js';
+
+			window.URL = window.URL || window.webkitURL;
+			window.BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder;
+
+			Number.prototype.format = function () {
+
+				return this.toString().replace( /(\d)(?=(\d{3})+(?!\d))/g, '$1,' );
+
+			};
+
+			//
+			//编辑器的上下文
+			var editor = new Editor();
+			// console.log(editor.scene,"111");
+			
+			window.editor = editor; // Expose editor to Console
+			window.THREE = THREE; // Expose THREE to APP Scripts and Console
+			// window.VRButton = VRButton; // Expose VRButton to APP Scripts
+			console.log(editor,THREE,12121)
+			
+			//窗口
+			var viewport = new Viewport( editor );
+			document.body.appendChild( viewport.dom );
+			
+			
+			//工具条（平移、旋转、缩放、本地世界空间）
+			var toolbar = new Toolbar( editor );
+			document.body.appendChild( toolbar.dom );
+
+			//脚本窗口
+			// var script = new Script( editor );
+			// document.body.appendChild( script.dom );
+
+			// //播放菜单项
+			// var player = new Player( editor );
+			// document.body.appendChild( player.dom );
+			
+			//侧边栏（工程、场景、设置等）
+			var sidebar = new Sidebar( editor );
+			document.body.appendChild( sidebar.dom );
+			
+			//菜单条
+			var menubar = new Menubar( editor );
+			document.body.appendChild( menubar.dom );
+
+			var resizer = new Resizer( editor );
+			document.body.appendChild( resizer.dom );
+
+			//
+
+			//序列化、反序列化
+			editor.storage.init( function () {
+			
+				//存储中设置获取函数
+				editor.storage.get( function ( state ) {
+
+					//如果是来自文件就返回
+					if ( isLoadingFromHash ) return;
+
+					if ( state !== undefined ) {
+
+						editor.fromJSON( state );
+
+					}
+					//是否保存选择状态
+					var selected = editor.config.getKey( 'selected' );
+
+					if ( selected !== undefined ) {
+
+						editor.selectByUuid( selected );
+
+					}
+
+				} );
+
+				//
+
+				var timeout;
+
+				function saveState() {
+				//如果是不是自动保存，就返回
+					if ( editor.config.getKey( 'autosave' ) === false ) {
+
+						return;
+
+					}
+
+					clearTimeout( timeout );
+
+					timeout = setTimeout( function () {
+
+						editor.signals.savingStarted.dispatch();
+
+						timeout = setTimeout( function () {
+
+							editor.storage.set( editor.toJSON() );
+
+							editor.signals.savingFinished.dispatch();
+
+						}, 100 );
+
+					}, 1000 );
+					
+					console.log('signals',signals)
+				}
+
+				//编辑器的信号
+				var signals = editor.signals;
+
+				//几何信息改变处理方法
+				signals.geometryChanged.add( saveState );
+				
+				//对象添加处理方法
+				signals.objectAdded.add( saveState );
+				
+				//对象改变处理方法
+				signals.objectChanged.add( saveState );
+				
+				//对象移除处理方法
+				signals.objectRemoved.add( saveState );
+				
+				//材质改变处理方法
+				signals.materialChanged.add( saveState );
+				
+				//场景背景改变的处理方法
+				signals.sceneBackgroundChanged.add( saveState );
+				
+			
+				signals.sceneEnvironmentChanged.add( saveState );
+				
+				//场景雾改变的处理方法
+				signals.sceneFogChanged.add( saveState );
+				
+				//场景图改变的处理方法
+				signals.sceneGraphChanged.add( saveState );
+				
+				//脚本改变的处理方法
+				signals.scriptChanged.add( saveState );
+				
+				//历史改变的处理方法
+				signals.historyChanged.add( saveState );
+
+			} );
+
+			//
+
+			//按住拖拽
+			document.addEventListener( 'dragover', function ( event ) {
+
+				event.preventDefault();
+				event.dataTransfer.dropEffect = 'copy';
+
+			}, false );
+
+			//拖拽抬起
+			document.addEventListener( 'drop', function ( event ) {
+
+				event.preventDefault();
+
+				if ( event.dataTransfer.types[ 0 ] === 'text/plain' ) return; // Outliner drop
+
+				if ( event.dataTransfer.items ) {
+
+					// DataTransferItemList supports folders
+
+					editor.loader.loadItemList( event.dataTransfer.items );
+
+				} else {
+
+					editor.loader.loadFiles( event.dataTransfer.files );
+
+				}
+
+			}, false );
+
+			function onWindowResize() {
+
+				editor.signals.windowResize.dispatch();
+
+			}
+
+			//注册窗口放大消息
+			window.addEventListener( 'resize', onWindowResize, false );
+
+			//首先调用一次重置大小
+			onWindowResize();
+
+			//
+			//来自文件
+			var isLoadingFromHash = false;
+			var hash = window.location.hash;
+
+			if ( hash.substr( 1, 5 ) === 'file=' ) {
+
+				var file = hash.substr( 6 );
+
+				if ( confirm( 'Any unsaved data will be lost. Are you sure?' ) ) {
+
+					var loader = new THREE.FileLoader();
+					loader.crossOrigin = '';
+					loader.load( file, function ( text ) {
+
+						editor.clear();
+						editor.fromJSON( JSON.parse( text ) );
+
+					} );
+
+					isLoadingFromHash = true;
+
+				}
+
+			}
+
+			// ServiceWorker
+
+			if ( 'serviceWorker' in navigator ) {
+
+				try {
+
+					navigator.serviceWorker.register( 'sw.js' );
+
+				} catch ( error ) {
+
+				}
+
+			}
+
+		</script>
+		
+		<div class="toolbar2">
+			<span class="undo">撤销 (Ctrl+Z)</span>
+			<span class="redo">重做 (Ctrl+Shift+Z)</span>
+			<span class="log2">log2</span>
+			<span>撤销3</span>
+		</div>
+		
+		<script src="js/xhb/jquery.js" type="text/javascript" charset="utf-8"></script>
+		<script src="js/xhb/vue.min.js" type="text/javascript" charset="utf-8"></script>
+		<script type="text/javascript">
+			$(function(){
+				$(".toolbar2 .undo").on('click',function(){
+					$('#menubar .menu-edit-box .options>div:first-child').click();
+				});
+				$(".toolbar2 .redo").on('click',function(){
+					$('#menubar .menu-edit-box .options>div:nth-child(2)').click();
+				});
+				
+				$(".toolbar2 .log2").on('click',function(){
+					editor.scene.traverse(function(obj){
+						console.log(obj,"moxing")
+					});
+				});
+				
+			});
+		</script>
+	</body>
+</html>
